@@ -1,4 +1,4 @@
-(* zED80 - EL DENDO's Z80 emulator
+(* zED80 - EL DENDO's Z80 emulator V0.1 DEV
    (c)2010,2017 by ir. M. Dendooven
    This program is a Z80 emulator under construction
    the decoding algorithm is based on http://www.z80.info/decoding.htm *)
@@ -7,8 +7,8 @@ program zED80;
 uses math, crt;
 
 const
-	debug = true;
-	step = true;
+	debug = false;
+	step = false;
 	
 	r : array [0..7] of string = ('B','C','D','E','H','L','(HL)','A');
 	rp : array [0..3] of string = ('BC','DE','HL','SP');
@@ -110,13 +110,26 @@ begin
 	end
 end;
 
+procedure wr16_rp (rp: twoBits; val: word);
+begin
+	if rp = 3 then SP := val else reg.w[rp] := val	
+end;
+
+function rd16_rp (rp: twoBits): word;
+begin
+	if rp = 3 then rd16_rp := SP else rd16_rp := reg.w[rp]
+end;
+
 procedure wr16_rp2 (rp2: twoBits; val: word);
 begin
 	if rp2 = 3 	then begin A := lo(val); F.reg := hi(val) end 
-				else reg.w[rp2] := val
-		
+				else reg.w[rp2] := val	
 end; 
 
+function rd16_rp2 (rp2: twoBits): word;
+begin
+	if rp2 = 3 then rd16_rp2 := A*256+F.reg else rd16_rp2 := reg.w[rp2]
+end;
 
 function imm8: byte;
 begin
@@ -166,35 +179,46 @@ begin
 	F.b[FS]:=VS;F.b[FZ]:=VZ;F.b[F5]:=V5;F.b[FH]:=VH;F.b[F3]:=V3;F.b[FPV]:=VPV;F.b[FN]:=VN;F.b[FC]:=VC
 end;
 
-procedure alu8(i: threeBits; n: byte); // temporary version... flags should be added...
+procedure alu8(operation: threeBits; var Q: byte ;n: byte); // temporary version... flags should be added...
 var H: byte;
 	HH: word;
 begin 
-	case i of
-{ADD}	0: 	begin 	HH := A+n;H := (A and $0F)+(n and $0F); A := HH; 
-					Flags(A>127,A=0,boolean(A and $20),H>15,boolean(A and $08),
+	case operation of
+{ADD}	0: 	begin 	HH := Q+n;H := (Q and $0F)+(n and $0F); Q := HH; 
+					Flags(Q>127,Q=0,boolean(Q and $20),H>15,boolean(Q and $08),
 					(smallint(HH)>127) or (smallint(HH)<-127),false,HH>255) 
 			end;
-{ADC}	1:	begin 	HH := A+n+byte(F.b[FC]);H := (A and $0F)+(n and $0F)+byte(F.b[FC]); A := HH; 
-					Flags(A>127,A=0,boolean(A and $20),H>15,boolean(A and $08),
+{ADC}	1:	begin 	HH := Q+n+byte(F.b[FC]);H := (Q and $0F)+(n and $0F)+byte(F.b[FC]); Q := HH; 
+					Flags(Q>127,Q=0,boolean(Q and $20),H>15,boolean(Q and $08),
 					(smallint(HH)>127) or (smallint(HH)<-127),false,HH>255) 
 			end;
-{SUB}	2:	begin 	HH := A-n;H := (A and $0F)-(n and $0F); A := HH; 
-					Flags(A>127,A=0,boolean(A and $20),H>15,boolean(A and $08),
+{SUB}	2:	begin 	HH := Q-n;H := (Q and $0F)-(n and $0F); Q := HH; 
+					Flags(Q>127,Q=0,boolean(Q and $20),H>15,boolean(Q and $08),
 					(smallint(HH)>127) or (smallint(HH)<-127),true,HH>255) 
 			end;
-{SBC}	3:	begin 	HH := A-n-byte(F.b[FC]);H := (A and $0F)-(n and $0F)-byte(F.b[FC]); A := HH; 
-					Flags(A>127,A=0,boolean(A and $20),H>15,boolean(A and $08),
+{SBC}	3:	begin 	HH := Q-n-byte(F.b[FC]);H := (Q and $0F)-(n and $0F)-byte(F.b[FC]); Q := HH; 
+					Flags(Q>127,Q=0,boolean(Q and $20),H>15,boolean(Q and $08),
 					(smallint(HH)>127) or (smallint(HH)<-127),true,HH>255) 
 			end;
-{AND}	4:A := A and n;
-{XOR}	5:A := A xor n;
-{OR}	6:A := A or n;
-{CP}	7:	begin 	HH := A-n;H := (A and $0F)-(n and $0F);
-					Flags(HH>127,A=0,boolean(n and $20),H>15,boolean(n and $08),
+{AND}	4:Q := Q and n; //flags !
+{XOR}	5:Q := Q xor n; //flags !
+{OR}	6:Q := Q or n;  //flags !
+{CP}	7:	begin 	HH := Q-n;H := (Q and $0F)-(n and $0F);
+					Flags(HH>127,Q=0,boolean(n and $20),H>15,boolean(n and $08),
 					(smallint(HH)>127) or (smallint(HH)<-127),true,HH>255) 
 			end;
 	end
+end;
+
+procedure ADD16 (var QQ: word ; nn: word);
+var R,P: byte;
+	c : boolean;
+begin
+	c := F.b[FC]; //save carry
+	P := lo(QQ); alu8(1,P,lo(nn)); //add P, lo(nn)
+	R := hi(QQ); alu8(2,R,hi(nn)); //adc Q, hi(nn)
+	QQ := R*256+P;
+	F.b[FC] := c //restore carry	
 end;
 
 procedure push16(nn: word);
@@ -224,6 +248,7 @@ begin
 end;
 
 procedure oneInstr;
+var QQ: word;
 begin
 	x := (IR and $C0) shr 6;
 	y := (IR and $38) shr 3;
@@ -238,7 +263,11 @@ begin
 			1: nyi('EX AF,AF''');
 			2: nyi('DJNZ disp');
 			3: begin instr := 'JR disp'; PC := PC + disp + 1 end;
-			4..7: nyi('JR '+cc[y-4]+', disp')
+			4..7: 	begin 
+						instr := 'JR '+cc[y-4]+', disp'; 
+						if testcc(y-4) 	then PC := PC + disp + 1
+										else inc(PC)
+					end
 		   end;
 		1: case q of
 			0: nyi('LD '+rp[p]+', imm16');
@@ -259,7 +288,12 @@ begin
 			  end
 		   end;
 		3: case q of
-			0: nyi('INC '+rp[p]);
+			0: 	begin 
+					instr := 'INC '+rp[p]; 
+					QQ := rd16_rp(p);
+					ADD16(QQ,1);
+					wr16_rp(p,QQ)
+				end;
 			1: nyi('DEC '+rp[p]);
 		   end;
 		4: nyi('INC '+r[y]);
@@ -284,7 +318,7 @@ begin
 		1:case q of
 			0:begin instr := 'POP '+rp2[p]; wr16_rp2(p, pop16) end;
 			1:case p of
-				0:nyi('RET');
+				0:begin instr := 'RET'; PC := pop16 end;
 				1:nyi('EXX **');
 				2:nyi('JP HL');
 				3:nyi('LD SP,HL')
@@ -303,7 +337,7 @@ begin
 		  end;
 		4:nyi('CALL '+cc[y]+',imm16');
 		5:case q of
-			0:nyi('PUSH '+rp2[p]);
+			0:begin instr := 'PUSH '+rp2[p]; push16(rd16_rp2(p)) end;
 			1:case p of
 				0:begin instr := 'CALL imm16'; push16(PC+2); PC := imm16  end;
 				1:nyi(' ** DD prefix ** ');
@@ -311,7 +345,7 @@ begin
 				3:nyi(' ** FD prefix ** ')
 			  end
 		  end;
-		6:begin instr := alu[y]+' imm8'; alu8(y,imm8) end;
+		6:begin instr := alu[y]+' imm8'; alu8(y,A,imm8) end;
 		7:nyi('RST '+hexstr(y*8,2))
 		end
 	end;
@@ -349,7 +383,7 @@ end;
 	
 begin // main program
 	writeln('--------------------------------------------------');
-	writeln(' zED80 - EL DENDO''s Z80 emulator');
+	writeln(' zED80 - EL DENDO''s Z80 emulator V0.1 DEV');
     writeln(' (c)2010,2017 by ir. M. Dendooven');
     writeln(' This program is a Z80 emulator under construction');
 	writeln('--------------------------------------------------');
