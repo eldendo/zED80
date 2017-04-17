@@ -34,7 +34,7 @@ uses zED80, crt; // include the zED80 emulator (and the crt module for terminal 
 	    end
     end;
     
-    procedure load_prg (filename: string; address: word); // add you one stuff
+    procedure load_prg (filename: string; address: word); // add your own stuff
     var f : file of byte;				  // this routine reads a file into memory
         b : byte;
         i : cardinal = 0;
@@ -64,6 +64,13 @@ uses zED80, crt; // include the zED80 emulator (and the crt module for terminal 
     end;
     
 begin
+    writeln('*************************************************');
+    writeln('* zEDzero minimal computer emulator             *');
+    writeln('* this is a demo using the zED80 emulator       *');
+    writeln('* (c) copyright 2010-2017 by ir. Marc Dendooven *');
+    writeln('*************************************************');
+    writeln;
+    
     load_prg('rom',0);					// in this demo a file called 'rom' is loaded at address 0
     runZED80(0, $E000, @peek, @input, @poke, @output)	// start the emulation with PC = 0, SP = $E000
 end.							// and add your memory and io functions
