@@ -243,21 +243,21 @@ begin
 				end
 		   end;
 		1: case q of
-			0: nyi('LD '+rp[p]+', imm16');
+			0: begin instr := 'LD '+rp[p]+', imm16'; wr16_rp(p,imm16) end;
 			1: nyi('ADD HL '+rp[p])
 		   end;
 		2: case q of
 			0:case p of
 				0: nyi('LD (BC),A');
 				1: nyi('LD (DE),A');
-				2: nyi('LD ('+'imm16'+'),HL');
-				3: nyi('LD ('+'imm16'+'),A')
+				2: begin instr := 'LD ('+'imm16'+'),HL'; poke2(imm16,rd16_rp(2)) end;
+				3: begin instr := 'LD ('+'imm16'+'),A'; poke(imm16,A) end
 			  end;
 			1:case p of
 				0: nyi('LD A,(BC)');
 				1: nyi('LD A,(DE)');
-				2: nyi('LD HL,(imm16)');
-				3: nyi('LD A,(imm16)');
+				2: begin instr := 'LD HL,(imm16)'; wr16_rp(2,peek2(imm16)) end;
+				3: begin instr := 'LD A,(imm16)'; A := peek(imm16) end;
 			  end
 		   end;
 		3: case q of
@@ -285,7 +285,7 @@ begin
 		end;
 	  1:if (z=6) and (y=6) 	then begin instr := 'HALT'; HALT end 
 				else begin instr := 'LD '+r[y]+','+r[z]; wr8(y,rd8(z)) end;
-	  2:nyi(alu[y]+' '+r[z]);
+	  2:begin instr := alu[y]+' '+r[z]; alu8(y,A,rd8(z))  end;
 	  3:case z of
 		0:nyi('RET '+cc[y]);
 		1:case q of
@@ -302,11 +302,11 @@ begin
 			0:begin instr := 'JP imm16'; PC := imm16 end;
 			1:nyi('** CB prefix **');
 			2:begin instr := 'OUT (imm8),A'; output(imm8,A) end;
-			3:begin instr := 'IN A,(imm8)'; A := input(imm8) end;
+			3:begin instr := 'IN A,(imm8)'; A := input(imm8) end; //flags ???
 			4:nyi('EX (SP),HL');
 			5:nyi('EX DE,HL');
 			6:nyi('DI');
-			7:nyi('EI')
+			7:instr := 'EI' // does nothing here 
 		  end;
 		4:nyi('CALL '+cc[y]+',imm16');
 		5:case q of
@@ -330,7 +330,7 @@ end;
 //procedure runZED80(PC,SP: word; peek,input: readCallBack; poke,output: writeCallBack);	
 begin //runZED80
 	writeln('--------------------------------------------------');
-	writeln(' zED80 - EL DENDO''s Z80 emulator V0.1 DEV');
+	writeln(' zED80 - EL DENDO''s Z80 emulator V0.2 DEV');
 	writeln(' (c)2010,2017 by ir. M. Dendooven');
 	writeln(' This program is a Z80 emulator under construction');
 	writeln('--------------------------------------------------');	

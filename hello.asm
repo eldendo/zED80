@@ -4,7 +4,8 @@ begin:	CALL print
 	DB 'hello world',LF
 	DB '-----------',LF
 	DB 'this is a simple test',LF
-	DB 'for the zED80 emulator',LF,$00
+	DB 'for the zEDone virtual computer',LF
+	DB 'using the zED80 emulator',LF,$00
 	HALT
 	
 print:	POP HL
