@@ -1,11 +1,20 @@
-(* zED80 - EL DENDO's Z80 emulator V0.1 DEV
+(* zED80 - EL DENDO's Z80 emulator V0.2 DEV
    (c)2010,2017 by ir. M. Dendooven
    This program is a Z80 emulator under construction
    the decoding algorithm is based on http://www.z80.info/decoding.htm *)
    
-program zED80;
-uses math, crt;
+unit zED80;
 
+interface
+
+type  	readCallBack = function(address: word): byte;
+	writeCallBack = procedure(address: word; value: byte);
+	
+procedure runZED80(PC,SP: word; peek,input: readCallBack; poke,output: writeCallBack);
+
+implementation
+
+procedure runZED80(PC,SP: word; peek,input: readCallBack; poke,output: writeCallBack);
 const
 	debug = false;
 	step = false;
@@ -18,68 +27,32 @@ const
 //	rot : array [0..7] of string = ('RLC','RRC','RL','RR','SLA','SRA','SLL','SRL');	
 
 type 	oneBit = 0..1;
-		twoBits = 0..3;
-		threeBits = 0..7; 
-		flagNames = (FS,FZ,F5,FH,F3,FPV,FN,FC); // this order or reversed order ???
+	twoBits = 0..3;
+	threeBits = 0..7; 
+	flagNames = (FS,FZ,F5,FH,F3,FPV,FN,FC); // this order or reversed order ???
 
 var
-	PC, SP : word; //program counter, Stack pointer
+//	PC, SP : word; //program counter, Stack pointer
 
 	IR, A: byte; //instruction register, Accumulator
 	F:	packed record	 //Flagregister
-			case boolean of
-				true: (b: bitPacked array[flagNames] of boolean);
-				false:(reg: byte);
+		    case boolean of
+			    true: (b: bitPacked array[flagNames] of boolean);
+			    false:(reg: byte);
 		end;
 
 	
 	reg: 	packed record // other registers
-				case boolean of
-					true: (b: array [0..5] of byte); // B C D E H L
-					false: (w: array [0..2] of word);// BC DE HL       
-			end;
+		    case boolean of
+			    true: (b: array [0..5] of byte); // B C D E H L
+			    false: (w: array [0..2] of word);// BC DE HL       
+		end;
 			
 	x,p : twoBits; 		//decoder-
 	y,z : threeBits;	//help-
-	q : oneBit;			//variables
+	q : oneBit;		//variables
 		
 	instr: string = 'none'; //container for instruction in assembly language
-	
-	mem: array[word] of byte; 	//64K memory should never be directly accessed to allow memory mapping
-								//use peek and poke instead 
-
-
-			
-function peek(address: word): byte; //read a byte from memory, intercept memory mapping here
-begin
-	peek := mem[address]
-end;
-
-procedure poke(address: word; val: byte); //write a byte to memory, intercept memory mapping here
-begin
-	mem[address] := val
-end;
-
-procedure output(port: word; value: byte);
-begin
-	if debug 	then begin writeln; writeln('OUTPUT: ',chr(value)) end
-				else write(chr(value))
-end;
-
-function input (Port:word):byte;
-var key: integer;
-begin
-	case lo(port) of
-		0: if keypressed then begin 
-								//input := ord(readkey);
-								key := ord(readkey);
-								if key = 0 then halt; // debug exit routine
-								input := key
-							  end;	
-		1: if keypressed then input := $FF else input := 0;
-		else input := 255
-	end
-end;
 
 function peek2(address: word): word;
 begin
@@ -181,38 +154,38 @@ end;
 
 procedure alu8(operation: threeBits; var Q: byte ;n: byte); // temporary version... flags should be added...
 var H: byte;
-	HH: word;
+    HH: word;
 begin 
 	case operation of
 {ADD}	0: 	begin 	HH := Q+n;H := (Q and $0F)+(n and $0F); Q := HH; 
-					Flags(Q>127,Q=0,boolean(Q and $20),H>15,boolean(Q and $08),
-					(smallint(HH)>127) or (smallint(HH)<-127),false,HH>255) 
-			end;
+			Flags(Q>127,Q=0,boolean(Q and $20),H>15,boolean(Q and $08),
+			(smallint(HH)>127) or (smallint(HH)<-127),false,HH>255) 
+		end;
 {ADC}	1:	begin 	HH := Q+n+byte(F.b[FC]);H := (Q and $0F)+(n and $0F)+byte(F.b[FC]); Q := HH; 
-					Flags(Q>127,Q=0,boolean(Q and $20),H>15,boolean(Q and $08),
-					(smallint(HH)>127) or (smallint(HH)<-127),false,HH>255) 
-			end;
+			Flags(Q>127,Q=0,boolean(Q and $20),H>15,boolean(Q and $08),
+			(smallint(HH)>127) or (smallint(HH)<-127),false,HH>255) 
+		end;
 {SUB}	2:	begin 	HH := Q-n;H := (Q and $0F)-(n and $0F); Q := HH; 
-					Flags(Q>127,Q=0,boolean(Q and $20),H>15,boolean(Q and $08),
-					(smallint(HH)>127) or (smallint(HH)<-127),true,HH>255) 
-			end;
+			Flags(Q>127,Q=0,boolean(Q and $20),H>15,boolean(Q and $08),
+			(smallint(HH)>127) or (smallint(HH)<-127),true,HH>255) 
+		end;
 {SBC}	3:	begin 	HH := Q-n-byte(F.b[FC]);H := (Q and $0F)-(n and $0F)-byte(F.b[FC]); Q := HH; 
-					Flags(Q>127,Q=0,boolean(Q and $20),H>15,boolean(Q and $08),
-					(smallint(HH)>127) or (smallint(HH)<-127),true,HH>255) 
-			end;
-{AND}	4:Q := Q and n; //flags !
-{XOR}	5:Q := Q xor n; //flags !
-{OR}	6:Q := Q or n;  //flags !
+			Flags(Q>127,Q=0,boolean(Q and $20),H>15,boolean(Q and $08),
+			(smallint(HH)>127) or (smallint(HH)<-127),true,HH>255) 
+		end;
+{AND}	4:	Q := Q and n; //flags !
+{XOR}	5:	Q := Q xor n; //flags !
+{OR}	6:	Q := Q or n;  //flags !
 {CP}	7:	begin 	HH := Q-n;H := (Q and $0F)-(n and $0F);
-					Flags(HH>127,Q=0,boolean(n and $20),H>15,boolean(n and $08),
-					(smallint(HH)>127) or (smallint(HH)<-127),true,HH>255) 
-			end;
+			Flags(HH>127,Q=0,boolean(n and $20),H>15,boolean(n and $08),
+			(smallint(HH)>127) or (smallint(HH)<-127),true,HH>255) 
+		end;
 	end
 end;
 
 procedure ADD16 (var QQ: word ; nn: word);
 var R,P: byte;
-	c : boolean;
+    c : boolean;
 begin
 	c := F.b[FC]; //save carry
 	P := lo(QQ); alu8(1,P,lo(nn)); //add P, lo(nn)
@@ -264,10 +237,10 @@ begin
 			2: nyi('DJNZ disp');
 			3: begin instr := 'JR disp'; PC := PC + disp + 1 end;
 			4..7: 	begin 
-						instr := 'JR '+cc[y-4]+', disp'; 
-						if testcc(y-4) 	then PC := PC + disp + 1
-										else inc(PC)
-					end
+				    instr := 'JR '+cc[y-4]+', disp'; 
+				    if testcc(y-4)  then PC := PC + disp + 1
+						    else inc(PC)
+				end
 		   end;
 		1: case q of
 			0: nyi('LD '+rp[p]+', imm16');
@@ -311,7 +284,7 @@ begin
 		   end
 		end;
 	  1:if (z=6) and (y=6) 	then begin instr := 'HALT'; HALT end 
-							else begin instr := 'LD '+r[y]+','+r[z]; wr8(y,rd8(z)) end;
+				else begin instr := 'LD '+r[y]+','+r[z]; wr8(y,rd8(z)) end;
 	  2:nyi(alu[y]+' '+r[z]);
 	  3:case z of
 		0:nyi('RET '+cc[y]);
@@ -351,55 +324,24 @@ begin
 	end;
 end;
 
-procedure load_prg (filename: string; address: word);
-var     f : file of byte;
-        b : byte;
-        i : cardinal = 0;
-        a : cardinal; 
-begin
-        a := address;
-        {$i-}
-        assign (f,filename);
-        reset(f);
-        {$i+}
-        if ioresult <> 0
-        then
-                writeLn('No file named '+filename)
-        else
-           begin
-                while not eof(f) do
-                    begin
-                        read(f,b);
-                        mem[address] := b;
-                        inc(address);
-                        inc(i)
-                    end;
-                close(f);
-                writeln('program '+filename+' loaded. ',i,' bytes ',ceil(i/256),' pages from $',hexstr(a,4),' to $',hexstr(address-1,4))
-           end;
-end;
 
 
-	
-begin // main program
+
+//procedure runZED80(PC,SP: word; peek,input: readCallBack; poke,output: writeCallBack);	
+begin //runZED80
 	writeln('--------------------------------------------------');
 	writeln(' zED80 - EL DENDO''s Z80 emulator V0.1 DEV');
-    writeln(' (c)2010,2017 by ir. M. Dendooven');
-    writeln(' This program is a Z80 emulator under construction');
-	writeln('--------------------------------------------------');
-	
-	load_prg('rom',0);
-	PC := 0;
-	SP := $E000;
-	
-//	writeln(sizeOf(F));
+	writeln(' (c)2010,2017 by ir. M. Dendooven');
+	writeln(' This program is a Z80 emulator under construction');
+	writeln('--------------------------------------------------');	
 	
 	while true do 
 	begin
-		IR := mem[PC];
+		IR := peek(PC);
 		inc(PC);
 		oneInstr;
 		if step then begin writeln; writeln('press return'); readln; end
 	end
+end;
 end.
 

@@ -1,19 +1,20 @@
-LF		equ $0A
-		org 0 
-		JP $100
-		org $100
+LF	equ $0A
+	org 0 
 begin:	CALL print
-		DB 'hello world',LF,$00
-		HALT
+	DB 'hello world',LF
+	DB '-----------',LF
+	DB 'this is a simple test',LF
+	DB 'for the zED80 emulator',LF,$00
+	HALT
 	
 print:	POP HL
 next: 	LD A,(HL)
-		CP $00
-		JP Z,exit
-		OUT (0),A
-		INC HL
-		JP next
+	CP $00
+	JP Z,exit
+	OUT (0),A
+	INC HL
+	JP next
 
 exit:	INC HL
-		PUSH HL
-		RET
+	PUSH HL
+	RET
