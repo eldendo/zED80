@@ -2,7 +2,12 @@
    (c)2010,2017 by ir. M. Dendooven
    This program is a Z80 emulator under construction
    the decoding algorithm is based on http://www.z80.info/decoding.htm *)
-   
+
+
+// known bugs:
+// IN r,(C)              SZ503P0-	Also true for IN F,(C)  nyi
+// lots of instructions not implemented
+
 unit zED80;
 
 interface
@@ -15,8 +20,9 @@ procedure runZED80(PC,SP: word; peek,input: readCallBack; poke,output: writeCall
 implementation
 
 procedure runZED80(PC,SP: word; peek,input: readCallBack; poke,output: writeCallBack);
+
 const
-	debug = false;
+	debug = true;
 	step = false;
 	
 	r : array [0..7] of string = ('B','C','D','E','H','L','(HL)','A');
@@ -29,8 +35,7 @@ const
 type 	oneBit = 0..1;
 	twoBits = 0..3;
 	threeBits = 0..7; 
-	flagNames = (FS,FZ,F5,FH,F3,FPV,FN,FC); // this order or reversed order ???
-
+	flagNames = (FC,FN,FPV,F3,FH,F5,FZ,FS); // 7..0
 var
 //	PC, SP : word; //program counter, Stack pointer
 
@@ -53,6 +58,8 @@ var
 	q : oneBit;		//variables
 		
 	instr: string = 'none'; //container for instruction in assembly language
+	
+	n: cardinal; //count instructions 
 
 function peek2(address: word): word;
 begin
@@ -138,12 +145,15 @@ var i: flagNames;
 begin
 	if debug then
 	begin
-		writeln('previous instruction: ',instr);writeln;
+		writeln; writeln('previous instruction: ',instr);writeln;
+		inc(n);
+		writeln('nr. of instructions executed: ',n);
 		writeln('PC=',hexStr(PC-1,4),' IR=',hexStr(IR,2),' SP=',hexStr(SP,4));
 		writeln('x=',x,' y=',y,' z=',z,' p=',p,' q=',q);
 		writeln('A=',hexstr(A,2),' BC=',hexstr(reg.w[0],4),' DE=',hexstr(reg.w[1],4),' HL=',hexstr(reg.w[2],4));
 		writeln('SZ5H3PNC');
-		for i:=FS to FC do write(integer(F.b[i])); writeln
+		for i:=FS to FC do write(integer(F.b[i])); writeln;
+		writeln(binstr(F.reg,8))
 	end
 end;
 
@@ -155,31 +165,54 @@ end;
 procedure alu8(operation: threeBits; var Q: byte ;n: byte); // temporary version... flags should be added...
 var H: byte;
     HH: word;
+    
+	function PE(B: byte): boolean; //Parity Equal
+	var i,Q: byte;
+	begin
+	    Q := 0;
+	    for i := 1 to 8 do begin Q := Q xor (B and 1); B := B >> 1 end;
+	    PE := not boolean (Q);
+	end;
+	
+	function V (SI: SmallInt): boolean; //2 complements oVerflow
+	begin					//smallInt = signed 16bit
+	    V := (SI > 127) or (SI < -128)
+	end;
+    
 begin 
 	case operation of
 {ADD}	0: 	begin 	HH := Q+n;H := (Q and $0F)+(n and $0F); Q := HH; 
 			Flags(Q>127,Q=0,boolean(Q and $20),H>15,boolean(Q and $08),
-			(smallint(HH)>127) or (smallint(HH)<-127),false,HH>255) 
-		end;
+			V(HH),false,HH>255) 
+		end; //SZ5H3VNC
 {ADC}	1:	begin 	HH := Q+n+byte(F.b[FC]);H := (Q and $0F)+(n and $0F)+byte(F.b[FC]); Q := HH; 
 			Flags(Q>127,Q=0,boolean(Q and $20),H>15,boolean(Q and $08),
-			(smallint(HH)>127) or (smallint(HH)<-127),false,HH>255) 
-		end;
+			V(HH),false,HH>255) 
+		end; //SZ5H3VNC
 {SUB}	2:	begin 	HH := Q-n;H := (Q and $0F)-(n and $0F); Q := HH; 
 			Flags(Q>127,Q=0,boolean(Q and $20),H>15,boolean(Q and $08),
-			(smallint(HH)>127) or (smallint(HH)<-127),true,HH>255) 
-		end;
+			V(HH),true,HH>255) 
+		end; //SZ5H3VNC
 {SBC}	3:	begin 	HH := Q-n-byte(F.b[FC]);H := (Q and $0F)-(n and $0F)-byte(F.b[FC]); Q := HH; 
 			Flags(Q>127,Q=0,boolean(Q and $20),H>15,boolean(Q and $08),
-			(smallint(HH)>127) or (smallint(HH)<-127),true,HH>255) 
-		end;
-{AND}	4:	Q := Q and n; //flags !
-{XOR}	5:	Q := Q xor n; //flags !
-{OR}	6:	Q := Q or n;  //flags !
-{CP}	7:	begin 	HH := Q-n;H := (Q and $0F)-(n and $0F);
+			V(HH),true,HH>255) 
+		end; //SZ5H3VNC
+{AND}	4:	begin 	Q := Q and n;
+			Flags(Q>127,Q=0,boolean(Q and $20),true,boolean(Q and $08),
+			PE(Q),false,false)
+		end; //SZ513P00
+{XOR}	5:	begin 	Q := Q xor n;
+			Flags(Q>127,Q=0,boolean(Q and $20),false,boolean(Q and $08),
+			PE(Q),false,false) 
+		end; //SZ503P00
+{OR}	6:	begin 	Q := Q or n;
+			Flags(Q>127,Q=0,boolean(Q and $20),false,boolean(Q and $08),
+			PE(Q),false,false)
+		end; //SZ503P00
+{CP}	7:	begin 	HH := Q-n; H := (Q and $0F)-(n and $0F);
 			Flags(HH>127,Q=0,boolean(n and $20),H>15,boolean(n and $08),
-			(smallint(HH)>127) or (smallint(HH)<-127),true,HH>255) 
-		end;
+			V(HH),true,HH>255) 
+		end; //SZ*H*VNC
 	end
 end;
 
@@ -189,21 +222,21 @@ var R,P: byte;
 begin
 	c := F.b[FC]; //save carry
 	P := lo(QQ); alu8(1,P,lo(nn)); //add P, lo(nn)
-	R := hi(QQ); alu8(2,R,hi(nn)); //adc Q, hi(nn)
+	R := hi(QQ); alu8(2,R,hi(nn)); //adc R, hi(nn)
 	QQ := R*256+P;
 	F.b[FC] := c //restore carry	
 end;
 
 procedure push16(nn: word);
 begin
+	dec(SP,2);
 	poke2(SP,nn);
-	inc(SP,2)
 end;
 
 function pop16: word;
 begin
-	dec(SP,2);
-	pop16 := peek2(SP)
+	pop16 := peek2(SP);
+	inc(SP,2)
 end;
 
 function testcc(n: threeBits): boolean;
@@ -222,6 +255,7 @@ end;
 
 procedure oneInstr;
 var QQ: word;
+    c: boolean;
 begin
 	x := (IR and $C0) shr 6;
 	y := (IR and $38) shr 3;
@@ -244,7 +278,7 @@ begin
 		   end;
 		1: case q of
 			0: begin instr := 'LD '+rp[p]+', imm16'; wr16_rp(p,imm16) end;
-			1: nyi('ADD HL '+rp[p])
+			1: begin instr := 'ADD HL '+rp[p]; QQ :=rd16_rp(2); ADD16(QQ,rd16_rp(p)); wr16_rp(2,QQ) end
 		   end;
 		2: case q of
 			0:case p of
@@ -276,7 +310,7 @@ begin
 			0: nyi('RLCA');
 			1: nyi('RRCA');
 			2: nyi('RLA');
-			3: nyi('RRA');
+			3: begin instr := 'RRA'; c := boolean(A xor 1); A := A >> 1; A := A and (F.reg << 7); F.b[FC] := c end;
 			4: nyi('DAA');
 			5: nyi('CPL');
 			6: nyi('SCF');
@@ -304,7 +338,7 @@ begin
 			2:begin instr := 'OUT (imm8),A'; output(imm8,A) end;
 			3:begin instr := 'IN A,(imm8)'; A := input(imm8) end; //flags ???
 			4:nyi('EX (SP),HL');
-			5:nyi('EX DE,HL');
+			5:begin instr := 'EX DE,HL'; QQ := rd16_rp(1); wr16_rp(1,rd16_rp(2)); wr16_rp(2,QQ) end;
 			6:nyi('DI');
 			7:instr := 'EI' // does nothing here 
 		  end;
@@ -327,7 +361,8 @@ end;
 
 
 
-//procedure runZED80(PC,SP: word; peek,input: readCallBack; poke,output: writeCallBack);	
+//procedure runZED80(PC,SP: word; peek,input: readCallBack; poke,output: writeCallBack);
+	
 begin //runZED80
 	writeln('--------------------------------------------------');
 	writeln(' zED80 - EL DENDO''s Z80 emulator V0.2 DEV');
