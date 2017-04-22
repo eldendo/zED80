@@ -1,5 +1,5 @@
-(* zED80 - EL DENDO's Z80 emulator V0.2 DEV
-   (c)2010,2017 by ir. M. Dendooven
+(* zED80 - EL DENDO's Z80 emulator V0.3 DEV
+   (c)2017 by ir. M. Dendooven
    This program is a Z80 emulator under construction
    the decoding algorithm is based on http://www.z80.info/decoding.htm *)
 
@@ -7,6 +7,7 @@
 // known bugs:
 // IN r,(C)              SZ503P0-	Also true for IN F,(C)  nyi
 // lots of instructions not implemented
+
 
 unit zED80;
 
@@ -23,7 +24,9 @@ procedure runZED80(PC,SP: word; peek,input: readCallBack; poke,output: writeCall
 
 const
 	debug = true;
-	step = false;
+//	debug = false;
+	step = true;
+//	step = false;
 	
 	r : array [0..7] of string = ('B','C','D','E','H','L','(HL)','A');
 	rp : array [0..3] of string = ('BC','DE','HL','SP');
@@ -39,18 +42,12 @@ type 	oneBit = 0..1;
 var
 //	PC, SP : word; //program counter, Stack pointer
 
-	IR, A: byte; //instruction register, Accumulator
+	IR,A,B,C,D,E,H,L: byte; // Instruction Register, user registers
+
 	F:	packed record	 //Flagregister
 		    case boolean of
 			    true: (b: bitPacked array[flagNames] of boolean);
 			    false:(reg: byte);
-		end;
-
-	
-	reg: 	packed record // other registers
-		    case boolean of
-			    true: (b: array [0..5] of byte); // B C D E H L
-			    false: (w: array [0..2] of word);// BC DE HL       
 		end;
 			
 	x,p : twoBits; 		//decoder-
@@ -59,7 +56,7 @@ var
 		
 	instr: string = 'none'; //container for instruction in assembly language
 	
-	n: cardinal; //count instructions 
+	n: cardinal = 0; //count instructions 
 
 function peek2(address: word): word;
 begin
@@ -72,43 +69,77 @@ begin
 	poke(address+1,hi(val))
 end;
 
+function pair(h, l: byte): word;
+begin
+    pair := h*256+l
+end;
+
 procedure wr8(r: threeBits; val: byte); // write to 8bits reg
 begin
 	case r of
-		6:	poke(reg.w[2],val); // (HL) <- val
+		0:	B := val;
+		1:	C := val;
+		2:	D := val;	
+		3:	E := val;
+		4:	H := val;
+		5:	L := val;
+		6:	poke(pair(H,L),val); // (HL) <- val
 		7:	A := val;
-		else reg.b[r] := val
 	end
 end;
 
 function rd8(r: threeBits): byte; // read from 8bits reg
 begin
 	case r of
-		6:	rd8 := peek(reg.w[2]); // val <- (HL)
+		0:	rd8 := B;
+		1:	rd8 := C;
+		2:	rd8 := D;
+		3:	rd8 := E;
+		4:	rd8 := H;
+		5:	rd8 := L;
+		6:	rd8 := peek(pair(H,L)); // val <- (HL)
 		7:	rd8 := A;
-		else rd8 := reg.b[r]
 	end
 end;
 
 procedure wr16_rp (rp: twoBits; val: word);
 begin
-	if rp = 3 then SP := val else reg.w[rp] := val	
+	case rp of
+	    0: begin B := hi(val); C := lo(val) end;
+	    1: begin D := hi(val); E := lo(val) end;
+	    2: begin H := hi(val); L := lo(val) end;
+	    3: SP := val;
+	end
 end;
 
 function rd16_rp (rp: twoBits): word;
 begin
-	if rp = 3 then rd16_rp := SP else rd16_rp := reg.w[rp]
+	case rp of
+	    0: rd16_rp := pair(B,C);
+	    1: rd16_rp := pair(D,E);
+	    2: rd16_rp := pair(H,L);
+	    3: rd16_rp := SP
+	end
 end;
 
 procedure wr16_rp2 (rp2: twoBits; val: word);
 begin
-	if rp2 = 3 	then begin A := lo(val); F.reg := hi(val) end 
-				else reg.w[rp2] := val	
+	case rp2 of
+	    0: begin B := hi(val); C := lo(val) end;
+	    1: begin D := hi(val); E := lo(val) end;
+	    2: begin H := hi(val); L := lo(val) end;
+	    3: begin A := hi(val); F.reg := lo(val) end
+	end
 end; 
 
 function rd16_rp2 (rp2: twoBits): word;
 begin
-	if rp2 = 3 then rd16_rp2 := A*256+F.reg else rd16_rp2 := reg.w[rp2]
+	case rp2 of
+	    0: rd16_rp2 := pair(B,C);
+	    1: rd16_rp2 := pair(D,E);
+	    2: rd16_rp2 := pair(H,L);
+	    3: rd16_rp2 := pair(A,F.reg)
+	end
 end;
 
 function imm8: byte;
@@ -145,14 +176,14 @@ var i: flagNames;
 begin
 	if debug then
 	begin
-		writeln; writeln('previous instruction: ',instr);writeln;
-		inc(n);
-		writeln('nr. of instructions executed: ',n);
+		writeln; writeln('executing: ',instr);writeln;
+		writeln('nr. of instructions executed: ',n); inc(n);
 		writeln('PC=',hexStr(PC-1,4),' IR=',hexStr(IR,2),' SP=',hexStr(SP,4));
 		writeln('x=',x,' y=',y,' z=',z,' p=',p,' q=',q);
-		writeln('A=',hexstr(A,2),' BC=',hexstr(reg.w[0],4),' DE=',hexstr(reg.w[1],4),' HL=',hexstr(reg.w[2],4));
+		writeln('A=',hexstr(A,2),' B=',hexstr(B,2),' C=',hexstr(C,2),' D=',hexstr(D,2),' E=',hexstr(E,2),' H=',hexstr(H,2),' L=',hexstr(L,2));
+		writeln('BC=',hexstr(pair(B,C),4),' DE=',hexstr(pair(D,E),4),' HL=',hexstr(pair(H,L),4));
 		writeln('SZ5H3PNC');
-		for i:=FS to FC do write(integer(F.b[i])); writeln;
+		for i:=FS downto Fc do write(integer(F.b[i])); writeln;
 		writeln(binstr(F.reg,8))
 	end
 end;
@@ -229,14 +260,20 @@ end;
 
 procedure push16(nn: word);
 begin
-	dec(SP,2);
-	poke2(SP,nn);
+	dec(SP);
+	poke(SP,hi(nn));
+	dec(SP);
+	poke(SP,lo(nn))
 end;
 
 function pop16: word;
+var h,l: byte;
 begin
-	pop16 := peek2(SP);
-	inc(SP,2)
+	l := peek(SP);
+	inc(SP);
+	h := peek(SP);
+	inc(SP);
+	pop16 := pair(h,l)
 end;
 
 function testcc(n: threeBits): boolean;
@@ -365,8 +402,8 @@ end;
 	
 begin //runZED80
 	writeln('--------------------------------------------------');
-	writeln(' zED80 - EL DENDO''s Z80 emulator V0.2 DEV');
-	writeln(' (c)2010,2017 by ir. M. Dendooven');
+	writeln(' zED80 - EL DENDO''s Z80 emulator V0.3 DEV');
+	writeln(' (c)2017 by ir. M. Dendooven');
 	writeln(' This program is a Z80 emulator under construction');
 	writeln('--------------------------------------------------');	
 	
