@@ -5,7 +5,7 @@
 
 
 // known bugs:
-// flags for rotates
+
 // lots of instructions not implemented
 
 
@@ -366,9 +366,16 @@ begin
 		6: begin instr := 'LD '+r[y]+', imm8'; wr8(y,imm8) end;
 		7: case y of
 			0: nyi('RLCA');
-			1: begin instr := 'RRCA'; F.B[FC] := boolean(A xor 1); A:= A >> 1; A := A and (F.reg << 7) end;
+			1: begin instr := 'RRCA'; F.B[FC] := boolean(A and 1); A:= A >> 1; A := A or (F.reg << 7);
+				F.B[F5]:=boolean(A and $20); F.B[FH]:=false; F.B[F3]:=boolean(A and $08);
+				F.B[FN]:=false //--503-0C
+			    end;
+
 			2: nyi('RLA');
-			3: begin instr := 'RRA'; carry := boolean(A xor 1); A := A >> 1; A := A and (F.reg << 7); F.b[FC] := carry end;
+			3: begin instr := 'RRA'; carry := boolean(A and 1); A := A >> 1; A := A or (F.reg << 7); F.b[FC] := carry; 
+				F.B[F5]:=boolean(A and $20); F.B[FH]:=false; F.B[F3]:=boolean(A and $08);
+				F.B[FN]:=false //--503-0C
+			    end;
 			4: nyi('DAA');
 			5: nyi('CPL');
 			6: nyi('SCF');
