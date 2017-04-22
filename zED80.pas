@@ -5,7 +5,7 @@
 
 
 // known bugs:
-// IN r,(C)              SZ503P0-	Also true for IN F,(C)  nyi
+// flags for rotates
 // lots of instructions not implemented
 
 
@@ -13,8 +13,14 @@ unit zED80;
 
 interface
 
+var	debug: boolean = false;
+	step: boolean = false;
+	
+
 type  	readCallBack = function(address: word): byte;
 	writeCallBack = procedure(address: word; value: byte);
+	
+
 	
 procedure runZED80(PC,SP: word; peek,input: readCallBack; poke,output: writeCallBack);
 
@@ -22,12 +28,7 @@ implementation
 
 procedure runZED80(PC,SP: word; peek,input: readCallBack; poke,output: writeCallBack);
 
-const
-	debug = true;
-//	debug = false;
-	step = true;
-//	step = false;
-	
+const	
 	r : array [0..7] of string = ('B','C','D','E','H','L','(HL)','A');
 	rp : array [0..3] of string = ('BC','DE','HL','SP');
 	rp2 : array [0..3] of string = ('BC','DE','HL','AF');
@@ -39,6 +40,8 @@ type 	oneBit = 0..1;
 	twoBits = 0..3;
 	threeBits = 0..7; 
 	flagNames = (FC,FN,FPV,F3,FH,F5,FZ,FS); // 7..0
+	
+
 var
 //	PC, SP : word; //program counter, Stack pointer
 
@@ -184,7 +187,9 @@ begin
 		writeln('BC=',hexstr(pair(B,C),4),' DE=',hexstr(pair(D,E),4),' HL=',hexstr(pair(H,L),4));
 		writeln('SZ5H3PNC');
 		for i:=FS downto Fc do write(integer(F.b[i])); writeln;
-		writeln(binstr(F.reg,8))
+		writeln(binstr(F.reg,8));
+		writeln('data=',hexstr(peek(PC),2),hexstr(peek(PC+1),2));
+		writeln('top=',hexstr(peek(SP),2),hexstr(peek(SP+1),2))
 	end
 end;
 
@@ -193,22 +198,22 @@ begin
 	F.b[FS]:=VS;F.b[FZ]:=VZ;F.b[F5]:=V5;F.b[FH]:=VH;F.b[F3]:=V3;F.b[FPV]:=VPV;F.b[FN]:=VN;F.b[FC]:=VC
 end;
 
+function PE(B: byte): boolean; //Parity Equal
+var i,Q: byte;
+begin
+    Q := 0;
+    for i := 1 to 8 do begin Q := Q xor (B and 1); B := B >> 1 end;
+    PE := not boolean (Q);
+end;
+
+function V (SI: SmallInt): boolean; //2 complements oVerflow
+begin					//smallInt = signed 16bit
+    V := (SI > 127) or (SI < -128)
+end;
+
 procedure alu8(operation: threeBits; var Q: byte ;n: byte); // temporary version... flags should be added...
 var H: byte;
     HH: word;
-    
-	function PE(B: byte): boolean; //Parity Equal
-	var i,Q: byte;
-	begin
-	    Q := 0;
-	    for i := 1 to 8 do begin Q := Q xor (B and 1); B := B >> 1 end;
-	    PE := not boolean (Q);
-	end;
-	
-	function V (SI: SmallInt): boolean; //2 complements oVerflow
-	begin					//smallInt = signed 16bit
-	    V := (SI > 127) or (SI < -128)
-	end;
     
 begin 
 	case operation of
@@ -241,7 +246,7 @@ begin
 			PE(Q),false,false)
 		end; //SZ503P00
 {CP}	7:	begin 	HH := Q-n; H := (Q and $0F)-(n and $0F);
-			Flags(HH>127,Q=0,boolean(n and $20),H>15,boolean(n and $08),
+			Flags(HH>127,HH=0,boolean(n and $20),H>15,boolean(n and $08),
 			V(HH),true,HH>255) 
 		end; //SZ*H*VNC
 	end
@@ -252,8 +257,19 @@ var R,P: byte;
     c : boolean;
 begin
 	c := F.b[FC]; //save carry
-	P := lo(QQ); alu8(1,P,lo(nn)); //add P, lo(nn)
-	R := hi(QQ); alu8(2,R,hi(nn)); //adc R, hi(nn)
+	P := lo(QQ); alu8(0,P,lo(nn)); //add P, lo(nn)
+	R := hi(QQ); alu8(1,R,hi(nn)); //adc R, hi(nn)
+	QQ := R*256+P;
+	F.b[FC] := c //restore carry	
+end;
+
+procedure SUB16 (var QQ: word ; nn: word);
+var R,P: byte;
+    c : boolean;
+begin
+	c := F.b[FC]; //save carry
+	P := lo(QQ); alu8(2,P,lo(nn)); //sub P, lo(nn)
+	R := hi(QQ); alu8(3,R,hi(nn)); //sbc R, hi(nn)
 	QQ := R*256+P;
 	F.b[FC] := c //restore carry	
 end;
@@ -292,7 +308,8 @@ end;
 
 procedure oneInstr;
 var QQ: word;
-    c: boolean;
+    T: byte;
+    carry: boolean;
 begin
 	x := (IR and $C0) shr 6;
 	y := (IR and $38) shr 3;
@@ -306,10 +323,10 @@ begin
 			0: instr := 'NOP';
 			1: nyi('EX AF,AF''');
 			2: nyi('DJNZ disp');
-			3: begin instr := 'JR disp'; PC := PC + disp + 1 end;
+			3: begin instr := 'JR disp'; PC := disp + PC end;
 			4..7: 	begin 
 				    instr := 'JR '+cc[y-4]+', disp'; 
-				    if testcc(y-4)  then PC := PC + disp + 1
+				    if testcc(y-4)  then PC := disp + PC 
 						    else inc(PC)
 				end
 		   end;
@@ -320,13 +337,13 @@ begin
 		2: case q of
 			0:case p of
 				0: nyi('LD (BC),A');
-				1: nyi('LD (DE),A');
+				1: begin instr := 'LD (DE),A';  poke2(pair(D,E),A) end;
 				2: begin instr := 'LD ('+'imm16'+'),HL'; poke2(imm16,rd16_rp(2)) end;
 				3: begin instr := 'LD ('+'imm16'+'),A'; poke(imm16,A) end
 			  end;
 			1:case p of
-				0: nyi('LD A,(BC)');
-				1: nyi('LD A,(DE)');
+				0: begin instr := 'LD A,(BC)'; A := peek(pair(B,C)) end;
+				1: begin instr := 'LD A,(DE)'; A := peek(pair(D,E)) end;
 				2: begin instr := 'LD HL,(imm16)'; wr16_rp(2,peek2(imm16)) end;
 				3: begin instr := 'LD A,(imm16)'; A := peek(imm16) end;
 			  end
@@ -338,16 +355,20 @@ begin
 					ADD16(QQ,1);
 					wr16_rp(p,QQ)
 				end;
-			1: nyi('DEC '+rp[p]);
+			1: 	begin 	instr := 'DEC '+rp[p];
+					QQ := rd16_rp(p);
+					SUB16(QQ,1);
+					wr16_rp(p,QQ) 
+				end;
 		   end;
-		4: nyi('INC '+r[y]);
-		5: nyi('DEC '+r[y]);
+		4: begin instr := 'INC '+r[y]; T := rd8(y); alu8(0,T,1); wr8(y,T) end;
+		5: begin instr := 'DEC '+r[y]; T := rd8(y); alu8(2,T,1); wr8(y,T) end;
 		6: begin instr := 'LD '+r[y]+', imm8'; wr8(y,imm8) end;
 		7: case y of
 			0: nyi('RLCA');
-			1: nyi('RRCA');
+			1: begin instr := 'RRCA'; F.B[FC] := boolean(A xor 1); A:= A >> 1; A := A and (F.reg << 7) end;
 			2: nyi('RLA');
-			3: begin instr := 'RRA'; c := boolean(A xor 1); A := A >> 1; A := A and (F.reg << 7); F.b[FC] := c end;
+			3: begin instr := 'RRA'; carry := boolean(A xor 1); A := A >> 1; A := A and (F.reg << 7); F.b[FC] := carry end;
 			4: nyi('DAA');
 			5: nyi('CPL');
 			6: nyi('SCF');
@@ -358,14 +379,14 @@ begin
 				else begin instr := 'LD '+r[y]+','+r[z]; wr8(y,rd8(z)) end;
 	  2:begin instr := alu[y]+' '+r[z]; alu8(y,A,rd8(z))  end;
 	  3:case z of
-		0:nyi('RET '+cc[y]);
+		0:begin instr := 'RET '+cc[y]; if testcc(y) then PC := pop16 end;
 		1:case q of
 			0:begin instr := 'POP '+rp2[p]; wr16_rp2(p, pop16) end;
 			1:case p of
 				0:begin instr := 'RET'; PC := pop16 end;
 				1:nyi('EXX **');
-				2:nyi('JP HL');
-				3:nyi('LD SP,HL')
+				2:begin instr := 'JP HL'; PC := pair(H,L) end;
+				3:begin instr := 'LD SP,HL';  SP := pair(H,L) end;
 			  end
 		  end;
 		2:begin instr := 'JP '+cc[y]+','+'imm16'; if testcc(y) then PC := imm16 else inc(PC,2) end;
@@ -373,13 +394,16 @@ begin
 			0:begin instr := 'JP imm16'; PC := imm16 end;
 			1:nyi('** CB prefix **');
 			2:begin instr := 'OUT (imm8),A'; output(imm8,A) end;
-			3:begin instr := 'IN A,(imm8)'; A := input(imm8) end; //flags ???
+			3:begin instr := 'IN A,(imm8)'; A := input(imm8);
+				Flags(A>127,A=0,boolean(A and $20),false,boolean(A and $08),PE(A),false,F.b[FC]);
+				if A=254 then PC:=100 //debug
+			  end; // SZ503P0-
 			4:nyi('EX (SP),HL');
 			5:begin instr := 'EX DE,HL'; QQ := rd16_rp(1); wr16_rp(1,rd16_rp(2)); wr16_rp(2,QQ) end;
 			6:nyi('DI');
 			7:instr := 'EI' // does nothing here 
 		  end;
-		4:nyi('CALL '+cc[y]+',imm16');
+		4:begin instr := 'CALL '+cc[y]+',imm16'; if testcc(y) then begin push16(PC+2); PC := imm16 end else inc(PC,2) end;
 		5:case q of
 			0:begin instr := 'PUSH '+rp2[p]; push16(rd16_rp2(p)) end;
 			1:case p of
