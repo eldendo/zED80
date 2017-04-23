@@ -6,7 +6,8 @@
 
 // known bugs:
 
-// lots of instructions not implemented
+// DAA not implemented
+// no prefixes
 
 
 unit zED80;
@@ -15,6 +16,7 @@ interface
 
 var	debug: boolean = false;
 	step: boolean = false;
+	mode8080: boolean = true;
 	
 
 type  	readCallBack = function(address: word): byte;
@@ -208,7 +210,8 @@ end;
 
 function V (SI: SmallInt): boolean; //2 complements oVerflow
 begin					//smallInt = signed 16bit
-    V := (SI > 127) or (SI < -128)
+    if mode8080 then V := PE(SI)
+		else V := (SI > 127) or (SI < -128)
 end;
 
 procedure alu8(operation: threeBits; var Q: byte ;n: byte); // temporary version... flags should be added...
@@ -217,7 +220,7 @@ var H: byte;
     
 begin 
 	case operation of
-{ADD}	0: 	begin 	HH := Q+n;H := (Q and $0F)+(n and $0F); Q := HH; 
+{ADD}	0: 	begin 	HH := Q+n; H := (Q and $0F)+(n and $0F); Q := HH; 
 			Flags(Q>127,Q=0,boolean(Q and $20),H>15,boolean(Q and $08),
 			V(HH),false,HH>255) 
 		end; //SZ5H3VNC
@@ -254,24 +257,24 @@ end;
 
 procedure ADD16 (var QQ: word ; nn: word);
 var R,P: byte;
-    c : boolean;
+ //   c : boolean;
 begin
-	c := F.b[FC]; //save carry
+//	c := F.b[FC]; //save carry
 	P := lo(QQ); alu8(0,P,lo(nn)); //add P, lo(nn)
 	R := hi(QQ); alu8(1,R,hi(nn)); //adc R, hi(nn)
 	QQ := R*256+P;
-	F.b[FC] := c //restore carry	
+//	F.b[FC] := c //restore carry	only inc en dec !!! <- not ok!
 end;
 
 procedure SUB16 (var QQ: word ; nn: word);
 var R,P: byte;
-    c : boolean;
+//    c : boolean;
 begin
-	c := F.b[FC]; //save carry
+//	c := F.b[FC]; //save carry
 	P := lo(QQ); alu8(2,P,lo(nn)); //sub P, lo(nn)
 	R := hi(QQ); alu8(3,R,hi(nn)); //sbc R, hi(nn)
 	QQ := R*256+P;
-	F.b[FC] := c //restore carry	
+//	F.b[FC] := c //restore carry	
 end;
 
 procedure push16(nn: word);
@@ -295,15 +298,30 @@ end;
 function testcc(n: threeBits): boolean;
 begin
 	case n of
-		0:testcc := not F.b[FZ];
-		1:testcc := F.b[FZ];
-		2:testcc := not F.b[FC];
-		3:testcc := F.b[FC];
-		4:testcc := not F.b[FPV];
-		5:testcc := F.b[FPV];
-		6:testcc := not F.b[FS];
-		7:testcc := F.b[FS];
+		0:testcc := not F.b[FZ]; //NZ
+		1:testcc := F.b[FZ];	 //Z
+		2:testcc := not F.b[FC]; //NC
+		3:testcc := F.b[FC];	 //C
+		4:testcc := not F.b[FPV];//PO
+		5:testcc := F.b[FPV];	 //PE
+		6:testcc := not F.b[FS]; //P
+		7:testcc := F.b[FS];	 //M
 	end
+end;
+
+procedure ex(var XX,YY: word);
+var HH: word;
+begin
+    HH := XX; XX := YY; YY := HH
+end;
+
+procedure daa; // carry probably not ok, what whit inc en dec ?
+var s: byte;
+begin
+    if ((A and $0F)>9) or F.b[FH] then s:=$6 else s:= $0;
+    if (((A and $F0)>>4)>9) or F.b[FC] then s:=s+$60;
+    if F.b[FN] 	then alu8(2,A,s) // -
+		else alu8(0,A,s) // +
 end;
 
 procedure oneInstr;
@@ -336,7 +354,7 @@ begin
 		   end;
 		2: case q of
 			0:case p of
-				0: nyi('LD (BC),A');
+				0: begin instr := 'LD (BC),A';  poke2(pair(B,C),A) end;
 				1: begin instr := 'LD (DE),A';  poke2(pair(D,E),A) end;
 				2: begin instr := 'LD ('+'imm16'+'),HL'; poke2(imm16,rd16_rp(2)) end;
 				3: begin instr := 'LD ('+'imm16'+'),A'; poke(imm16,A) end
@@ -350,19 +368,23 @@ begin
 		   end;
 		3: case q of
 			0: 	begin 
-					instr := 'INC '+rp[p]; 
+					instr := 'INC '+rp[p];
+					carry := F.b[FC]; //save carry
 					QQ := rd16_rp(p);
 					ADD16(QQ,1);
-					wr16_rp(p,QQ)
+					wr16_rp(p,QQ);
+					F.b[FC] := carry //restore carry
 				end;
 			1: 	begin 	instr := 'DEC '+rp[p];
+					carry := F.b[FC]; //save carry
 					QQ := rd16_rp(p);
 					SUB16(QQ,1);
-					wr16_rp(p,QQ) 
+					wr16_rp(p,QQ);
+					F.b[FC] := carry //restore carry 
 				end;
 		   end;
-		4: begin instr := 'INC '+r[y]; T := rd8(y); alu8(0,T,1); wr8(y,T) end;
-		5: begin instr := 'DEC '+r[y]; T := rd8(y); alu8(2,T,1); wr8(y,T) end;
+		4: begin instr := 'INC '+r[y]; carry := F.b[FC]; T := rd8(y); alu8(0,T,1); wr8(y,T); F.b[FC] := carry end;
+		5: begin instr := 'DEC '+r[y]; carry := F.b[FC]; T := rd8(y); alu8(2,T,1); wr8(y,T); F.b[FC] := carry end;
 		6: begin instr := 'LD '+r[y]+', imm8'; wr8(y,imm8) end;
 		7: case y of
 			0: begin instr := 'RLCA'; F.B[FC] := boolean(A and $80); A:= A << 1; A := A or (F.reg and 1);
@@ -382,12 +404,16 @@ begin
 				F.B[F5]:=boolean(A and $20); F.B[FH]:=false; F.B[F3]:=boolean(A and $08);
 				F.B[FN]:=false //--503-0C
 			    end;
-			4: nyi('DAA');
+			4: begin instr := 'DAA'; daa; end;
 			5: begin instr := 'CPL'; A := A xor $FF; F.B[F5]:=boolean(A and $20);F.B[FH]:=true;
 				F.B[F3]:=boolean(A and $08); F.B[FN]:=true //--*1*-1-
 			    end; 
-			6: nyi('SCF');
-			7: nyi('CCF')
+			6: begin instr := 'SCF'; F.b[FH] := false; F.b[FC] := true;F.b[FN] := false;
+				F.B[F5]:=boolean(A and $20);F.B[F3]:=boolean(A and $08) 
+			    end; //--*0*-01	F5, F3 from A register
+			7: begin instr := 'CCF'; F.b[FH] := F.b[FC]; F.b[FC] := not F.b[FC]; F.b[FN] := false;
+				F.B[F5]:=boolean(A and $20);F.B[F3]:=boolean(A and $08) 
+			    end //CCF --***-0*  C=1-C, H as old C F5, F3 from A register
 		   end
 		end;
 	  1:if (z=6) and (y=6) 	then begin instr := 'HALT'; HALT end 
@@ -413,9 +439,9 @@ begin
 				Flags(A>127,A=0,boolean(A and $20),false,boolean(A and $08),PE(A),false,F.b[FC]);
 				if A=254 then PC:=$100 //debug
 			  end; // SZ503P0-
-			4:nyi('EX (SP),HL');
+			4:begin instr := 'EX (SP),HL';  QQ := peek2(SP); poke2(SP,pair(H,L)); wr16_rp(2,QQ) end;
 			5:begin instr := 'EX DE,HL'; QQ := rd16_rp(1); wr16_rp(1,rd16_rp(2)); wr16_rp(2,QQ) end;
-			6:nyi('DI');
+			6:instr := 'DI';// does nothing here 
 			7:instr := 'EI' // does nothing here 
 		  end;
 		4:begin instr := 'CALL '+cc[y]+',imm16'; if testcc(y) then begin push16(PC+2); PC := imm16 end else inc(PC,2) end;
