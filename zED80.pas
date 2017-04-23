@@ -365,19 +365,27 @@ begin
 		5: begin instr := 'DEC '+r[y]; T := rd8(y); alu8(2,T,1); wr8(y,T) end;
 		6: begin instr := 'LD '+r[y]+', imm8'; wr8(y,imm8) end;
 		7: case y of
-			0: nyi('RLCA');
+			0: begin instr := 'RLCA'; F.B[FC] := boolean(A and $80); A:= A << 1; A := A or (F.reg and 1);
+				F.B[F5]:=boolean(A and $20); F.B[FH]:=false; F.B[F3]:=boolean(A and $08);
+				F.B[FN]:=false //--503-0C
+			    end;
 			1: begin instr := 'RRCA'; F.B[FC] := boolean(A and 1); A:= A >> 1; A := A or (F.reg << 7);
 				F.B[F5]:=boolean(A and $20); F.B[FH]:=false; F.B[F3]:=boolean(A and $08);
 				F.B[FN]:=false //--503-0C
 			    end;
 
-			2: nyi('RLA');
+			2: begin instr := 'RLA'; carry := boolean(A and $80); A := A << 1; A := A or (F.reg and 1); F.b[FC] := carry; 
+				F.B[F5]:=boolean(A and $20); F.B[FH]:=false; F.B[F3]:=boolean(A and $08);
+				F.B[FN]:=false //--503-0C
+			    end;
 			3: begin instr := 'RRA'; carry := boolean(A and 1); A := A >> 1; A := A or (F.reg << 7); F.b[FC] := carry; 
 				F.B[F5]:=boolean(A and $20); F.B[FH]:=false; F.B[F3]:=boolean(A and $08);
 				F.B[FN]:=false //--503-0C
 			    end;
 			4: nyi('DAA');
-			5: nyi('CPL');
+			5: begin instr := 'CPL'; A := A xor $FF; F.B[F5]:=boolean(A and $20);F.B[FH]:=true;
+				F.B[F3]:=boolean(A and $08); F.B[FN]:=true //--*1*-1-
+			    end; 
 			6: nyi('SCF');
 			7: nyi('CCF')
 		   end
@@ -403,7 +411,7 @@ begin
 			2:begin instr := 'OUT (imm8),A'; output(imm8,A) end;
 			3:begin instr := 'IN A,(imm8)'; A := input(imm8);
 				Flags(A>127,A=0,boolean(A and $20),false,boolean(A and $08),PE(A),false,F.b[FC]);
-				if A=254 then PC:=100 //debug
+				if A=254 then PC:=$100 //debug
 			  end; // SZ503P0-
 			4:nyi('EX (SP),HL');
 			5:begin instr := 'EX DE,HL'; QQ := rd16_rp(1); wr16_rp(1,rd16_rp(2)); wr16_rp(2,QQ) end;
