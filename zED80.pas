@@ -41,8 +41,8 @@ const
 type 	oneBit = 0..1;
 	twoBits = 0..3;
 	threeBits = 0..7; 
-	flagNames = (FC,FN,FPV,F3,FH,F5,FZ,FS); // 7..0
-	
+	flagNames = (FC,FN,FPV,F3,FH,F5,FZ,FS); // 0..7
+//	flagNames = (FS,FZ,F5,FH,F3,FPV,FN,FC); // 7..0 //enkel maar van belang als F als register gebruikt wordt <- geraakt door geen enkele test
 
 var
 //	PC, SP : word; //program counter, Stack pointer
@@ -197,7 +197,7 @@ end;
 
 procedure Flags(VS,VZ,V5,VH,V3,VPV,VN,VC: boolean);
 begin
-	F.b[FS]:=VS;F.b[FZ]:=VZ;F.b[F5]:=V5;F.b[FH]:=VH;F.b[F3]:=V3;F.b[FPV]:=VPV;F.b[FN]:=VN;F.b[FC]:=VC
+	F.b[FS]:=VS;F.b[FZ]:=VZ;F.b[F5]:=V5;F.b[FH]:=VH;F.b[F3]:=V3;F.b[FPV]:=VPV;if mode8080 then F.b[FN] := true else F.b[FN]:=VN;F.b[FC]:=VC
 end;
 
 function PE(B: byte): boolean; //Parity Equal
@@ -210,7 +210,7 @@ end;
 
 function V (SI: SmallInt): boolean; //2 complements oVerflow
 begin					//smallInt = signed 16bit
-    if mode8080 then V := PE(SI)
+    if mode8080 then V := PE(lo(word(SI)))
 		else V := (SI > 127) or (SI < -128)
 end;
 
@@ -224,16 +224,16 @@ begin
 			Flags(Q>127,Q=0,boolean(Q and $20),H>15,boolean(Q and $08),
 			V(HH),false,HH>255) 
 		end; //SZ5H3VNC
-{ADC}	1:	begin 	HH := Q+n+byte(F.b[FC]);H := (Q and $0F)+(n and $0F)+byte(F.b[FC]); Q := HH; 
+{ADC}	1:	begin 	HH := Q+n+byte(F.b[FC]);H := (Q and $0F)+(n and $0F)+byte(F.b[FC]=true); Q := HH; 
 			Flags(Q>127,Q=0,boolean(Q and $20),H>15,boolean(Q and $08),
 			V(HH),false,HH>255) 
 		end; //SZ5H3VNC
 {SUB}	2:	begin 	HH := Q-n;H := (Q and $0F)-(n and $0F); Q := HH; 
-			Flags(Q>127,Q=0,boolean(Q and $20),H>15,boolean(Q and $08),
+			Flags(Q>127,Q=0,boolean(Q and $20),H>127,boolean(Q and $08),
 			V(HH),true,HH>255) 
 		end; //SZ5H3VNC
-{SBC}	3:	begin 	HH := Q-n-byte(F.b[FC]);H := (Q and $0F)-(n and $0F)-byte(F.b[FC]); Q := HH; 
-			Flags(Q>127,Q=0,boolean(Q and $20),H>15,boolean(Q and $08),
+{SBC}	3:	begin 	HH := Q-n-byte(F.b[FC]);H := (Q and $0F)-(n and $0F)-byte(F.b[FC]=true); Q := HH; 
+			Flags(Q>127,Q=0,boolean(Q and $20),H>127,boolean(Q and $08),
 			V(HH),true,HH>255) 
 		end; //SZ5H3VNC
 {AND}	4:	begin 	Q := Q and n;
@@ -249,32 +249,32 @@ begin
 			PE(Q),false,false)
 		end; //SZ503P00
 {CP}	7:	begin 	HH := Q-n; H := (Q and $0F)-(n and $0F);
-			Flags(HH>127,HH=0,boolean(n and $20),H>15,boolean(n and $08),
+			Flags(HH>127,HH=0,boolean(n and $20),H>127,boolean(n and $08),
 			V(HH),true,HH>255) 
 		end; //SZ*H*VNC
 	end
 end;
 
 procedure ADD16 (var QQ: word ; nn: word);
-var R,P: byte;
- //   c : boolean;
+var h,l: byte;
+    z,pv,s : boolean;
 begin
-//	c := F.b[FC]; //save carry
-	P := lo(QQ); alu8(0,P,lo(nn)); //add P, lo(nn)
-	R := hi(QQ); alu8(1,R,hi(nn)); //adc R, hi(nn)
-	QQ := R*256+P;
-//	F.b[FC] := c //restore carry	only inc en dec !!! <- not ok!
+	z := F.b[FC]; pv := F.b[FPV]; s := F.b[FS]; //save z,pv,s
+	l := lo(QQ); alu8(0,l,lo(nn)); //add l, lo(nn)
+	h := hi(QQ); alu8(1,h,hi(nn)); //adc h, hi(nn)
+	QQ := pair(h,l);
+	F.b[FZ] := z; F.b[FPV] := pv; F.b[FS] := s //restore z,pv,s
 end;
 
-procedure SUB16 (var QQ: word ; nn: word);
-var R,P: byte;
-//    c : boolean;
+procedure SUB16 (var QQ: word ; nn: word); // er bestaat enkel SBC en vlaggen anders !
+var h,l: byte;
+    z,pv,s : boolean;
 begin
-//	c := F.b[FC]; //save carry
-	P := lo(QQ); alu8(2,P,lo(nn)); //sub P, lo(nn)
-	R := hi(QQ); alu8(3,R,hi(nn)); //sbc R, hi(nn)
-	QQ := R*256+P;
-//	F.b[FC] := c //restore carry	
+	z := F.b[FC]; pv := F.b[FPV]; s := F.b[FS]; //save z,p,s
+	l := lo(QQ); alu8(2,l,lo(nn)); //sub l, lo(nn)
+	h := hi(QQ); alu8(3,h,hi(nn)); //sbc h, hi(nn)
+	QQ := pair(h,l);
+	F.b[FZ] := z; F.b[FPV] := pv; F.b[FS] := s //restore z,p,s	
 end;
 
 procedure push16(nn: word);
@@ -315,13 +315,54 @@ begin
     HH := XX; XX := YY; YY := HH
 end;
 
-procedure daa; // carry probably not ok, what whit inc en dec ?
+procedure daa; //what whit inc en dec ?
 var s: byte;
+    c,n: boolean;
+    hn,ln: byte;
+    
 begin
-    if ((A and $0F)>9) or F.b[FH] then s:=$6 else s:= $0;
-    if (((A and $F0)>>4)>9) or F.b[FC] then s:=s+$60;
-    if F.b[FN] 	then alu8(2,A,s) // -
-		else alu8(0,A,s) // +
+//    if ((A and $0F)>9) or F.b[FH] then s:=$6 else s:= $0;
+//    if (((A and $F0)>>4)>8) or F.b[FC] then begin s:=s+$60; c:=true end;
+//    if F.b[FN] 	then alu8(2,A,s) // -
+//		else alu8(0,A,s);// +
+//    F.b[FC] := c
+(*
+N   C   Value of     H  Value of     Hex no   C flag after
+        high nibble     low nibble   added    execution
+
+0   0      0-9       0     0-9       00       0
+0   0      0-8       0     A-F       06       0
+0   0      0-9       1     0-3       06       0
+0   0      A-F       0     0-9       60       1
+0   0      9-F       0     A-F       66       1
+0   0      A-F       1     0-3       66       1
+0   1      0-2       0     0-9       60       1
+0   1      0-2       0     A-F       66       1
+0   1      0-3       1     0-3       66       1
+1   0      0-9       0     0-9       00       0
+1   0      0-8       1     6-F       FA       0
+1   1      7-F       0     0-9       A0       1
+1   1      6-F       1     6-F       9A       1
+*)
+n := F.b[FN]; if mode8080 then F.b[FN] := false;
+hn := (A and $F0)>>4;
+ln := A and $0F;
+if (F.b[FN]=false) and (F.b[FC]=false) and (hn<=9) and (F.b[FH]=false) and (ln<=9) then begin s:=$00; c := false end;
+if (F.b[FN]=false) and (F.b[FC]=false) and (hn<=8) and (F.b[FH]=false) and (ln>9) then begin s:=$06; c := false end;
+if (F.b[FN]=false) and (F.b[FC]=false) and (hn<=9) and (F.b[FH]=true) and (ln<=3) then begin s:=$06; c := false end;
+if (F.b[FN]=false) and (F.b[FC]=false) and (hn>9) and (F.b[FH]=false) and (ln<=9) then begin s:=$60; c := true end;
+if (F.b[FN]=false) and (F.b[FC]=false) and (hn>8) and (F.b[FH]=false) and (ln>9) then begin s:=$66; c := true end;
+if (F.b[FN]=false) and (F.b[FC]=false) and (hn>9) and (F.b[FH]=true) and (ln<=3) then begin s:=$66; c := true end;
+if (F.b[FN]=false) and (F.b[FC]=true) and (hn<=2) and (F.b[FH]=false) and (ln<=9) then begin s:=$60; c := true end;
+if (F.b[FN]=false) and (F.b[FC]=true) and (hn<=2) and (F.b[FH]=false) and (ln>9) then begin s:=$66; c := true end;
+if (F.b[FN]=false) and (F.b[FC]=true) and (hn<=3) and (F.b[FH]=true) and (ln<=3) then begin s:=$66; c := true end;
+if (F.b[FN]=true) and (F.b[FC]=false) and (hn<=9) and (F.b[FH]=false) and (ln<=9) then begin s:=$00; c := false end;
+if (F.b[FN]=true) and (F.b[FC]=false) and (hn<=8) and (F.b[FH]=true) and (ln>=6) then begin s:=$FA; c := false end;
+if (F.b[FN]=true) and (F.b[FC]=true) and (hn>=7) and (F.b[FH]=false) and (ln<=9) then begin s:=$A0; c := true end;
+if (F.b[FN]=true) and (F.b[FC]=true) and (hn>=6) and (F.b[FH]=true) and (ln>6) then begin s:=$9A; c := true end;
+alu8(0,A,s);
+F.b[FC] := c;
+F.b[FN] := n
 end;
 
 procedure oneInstr;
@@ -369,40 +410,44 @@ begin
 		3: case q of
 			0: 	begin 
 					instr := 'INC '+rp[p];
-					carry := F.b[FC]; //save carry
+					// carry := F.b[FC]; //save carry
+					T := F.reg; //save Flags
 					QQ := rd16_rp(p);
 					ADD16(QQ,1);
 					wr16_rp(p,QQ);
-					F.b[FC] := carry //restore carry
+					//F.b[FC] := carry //restore carry			
+					F.reg := T //restore Flags
 				end;
 			1: 	begin 	instr := 'DEC '+rp[p];
-					carry := F.b[FC]; //save carry
+					//carry := F.b[FC]; //save carry
+					T := F.reg; //save Flags					
 					QQ := rd16_rp(p);
 					SUB16(QQ,1);
 					wr16_rp(p,QQ);
-					F.b[FC] := carry //restore carry 
+					//F.b[FC] := carry //restore carry 
+					F.reg := T //restore Flags					
 				end;
 		   end;
 		4: begin instr := 'INC '+r[y]; carry := F.b[FC]; T := rd8(y); alu8(0,T,1); wr8(y,T); F.b[FC] := carry end;
 		5: begin instr := 'DEC '+r[y]; carry := F.b[FC]; T := rd8(y); alu8(2,T,1); wr8(y,T); F.b[FC] := carry end;
 		6: begin instr := 'LD '+r[y]+', imm8'; wr8(y,imm8) end;
 		7: case y of
-			0: begin instr := 'RLCA'; F.B[FC] := boolean(A and $80); A:= A << 1; A := A or (F.reg and 1);
-				F.B[F5]:=boolean(A and $20); F.B[FH]:=false; F.B[F3]:=boolean(A and $08);
-				F.B[FN]:=false //--503-0C
+			0: begin instr := 'RLCA'; F.B[FC] := (A and $80)=$80; A:= A << 1; A := A or (F.reg and 1);
+				F.B[F5]:=boolean(A and $20); if not mode8080 then F.B[FH]:=false; F.B[F3]:=boolean(A and $08);
+				if not mode8080 then F.B[FN]:=false //--503-0C // 8080 do NOT clear the H flag for rotation Z80 does
 			    end;
-			1: begin instr := 'RRCA'; F.B[FC] := boolean(A and 1); A:= A >> 1; A := A or (F.reg << 7);
-				F.B[F5]:=boolean(A and $20); F.B[FH]:=false; F.B[F3]:=boolean(A and $08);
-				F.B[FN]:=false //--503-0C
+			1: begin instr := 'RRCA'; F.B[FC] := (A and 1)=1; A:= A >> 1; A := A or (F.reg << 7);
+				F.B[F5]:=boolean(A and $20); if not mode8080 then F.B[FH]:=false; F.B[F3]:=boolean(A and $08);
+				if not mode8080 then F.B[FN]:=false //--503-0C
 			    end;
 
-			2: begin instr := 'RLA'; carry := boolean(A and $80); A := A << 1; A := A or (F.reg and 1); F.b[FC] := carry; 
-				F.B[F5]:=boolean(A and $20); F.B[FH]:=false; F.B[F3]:=boolean(A and $08);
-				F.B[FN]:=false //--503-0C
+			2: begin instr := 'RLA'; carry := (A and $80)=$80; A := A << 1; A := A or (F.reg and 1); F.b[FC] := carry; 
+				F.B[F5]:=boolean(A and $20); if not mode8080 then F.B[FH]:=false; F.B[F3]:=boolean(A and $08);
+				if not mode8080 then F.B[FN]:=false //--503-0C
 			    end;
-			3: begin instr := 'RRA'; carry := boolean(A and 1); A := A >> 1; A := A or (F.reg << 7); F.b[FC] := carry; 
-				F.B[F5]:=boolean(A and $20); F.B[FH]:=false; F.B[F3]:=boolean(A and $08);
-				F.B[FN]:=false //--503-0C
+			3: begin instr := 'RRA'; carry := (A and 1)=1; A := A >> 1; A := A or (F.reg << 7); F.b[FC] := carry; 
+				F.B[F5]:=boolean(A and $20); if not mode8080 then F.B[FH]:=false; F.B[F3]:=boolean(A and $08);
+				if not mode8080 then F.B[FN]:=false //--503-0C
 			    end;
 			4: begin instr := 'DAA'; daa; end;
 			5: begin instr := 'CPL'; A := A xor $FF; F.B[F5]:=boolean(A and $20);F.B[FH]:=true;
@@ -411,7 +456,7 @@ begin
 			6: begin instr := 'SCF'; F.b[FH] := false; F.b[FC] := true;F.b[FN] := false;
 				F.B[F5]:=boolean(A and $20);F.B[F3]:=boolean(A and $08) 
 			    end; //--*0*-01	F5, F3 from A register
-			7: begin instr := 'CCF'; F.b[FH] := F.b[FC]; F.b[FC] := not F.b[FC]; F.b[FN] := false;
+			7: begin instr := 'CCF'; {F.b[FH] := F.b[FC];} F.b[FC] := not F.b[FC]; if not mode8080 then F.b[FN] := false;
 				F.B[F5]:=boolean(A and $20);F.B[F3]:=boolean(A and $08) 
 			    end //CCF --***-0*  C=1-C, H as old C F5, F3 from A register
 		   end
