@@ -214,7 +214,7 @@ begin					//smallInt = signed 16bit
 		else V := (SI > 127) or (SI < -128)
 end;
 
-procedure alu8(operation: threeBits; var Q: byte ;n: byte); // temporary version... flags should be added...
+procedure alu8(operation: threeBits; var Q: byte ;n: byte); // temporary version... 
 var H: byte;
     HH: word;
     
@@ -370,6 +370,15 @@ var QQ: word;
     T: byte;
     carry: boolean;
 begin
+
+	if mode8080 and (IR in [$08,$10,$18,$20,$28,$30,$38,$cb,$d9,$dd,$ed,$fd])
+	    then begin writeln; writeln('instruction $',hexstr(IR,2),' on address $',
+			hexstr(PC-1,4),' is an Z80 instruction and is not supported in 8080 mode');
+			halt
+		end;
+	
+//	if PC-1 > $F200 then debug := true else debug := false;
+	
 	x := (IR and $C0) shr 6;
 	y := (IR and $38) shr 3;
 	z :=  IR and $07;
@@ -382,9 +391,9 @@ begin
 			0: instr := 'NOP';
 			1: nyi('EX AF,AF''');
 			2: nyi('DJNZ disp');
-			3: begin instr := 'JR disp'; PC := disp + PC end;
+			3: begin instr := 'JR disp'; PC := disp + PC end; //ugly !
 			4..7: 	begin 
-				    instr := 'JR '+cc[y-4]+', disp'; 
+				    instr := 'JR '+cc[y-4]+', disp';      //ugly !
 				    if testcc(y-4)  then PC := disp + PC 
 						    else inc(PC)
 				end
@@ -395,8 +404,8 @@ begin
 		   end;
 		2: case q of
 			0:case p of
-				0: begin instr := 'LD (BC),A';  poke2(pair(B,C),A) end;
-				1: begin instr := 'LD (DE),A';  poke2(pair(D,E),A) end;
+				0: begin instr := 'LD (BC),A';  poke(pair(B,C),A) end;
+				1: begin instr := 'LD (DE),A';  poke(pair(D,E),A) end;
 				2: begin instr := 'LD ('+'imm16'+'),HL'; poke2(imm16,rd16_rp(2)) end;
 				3: begin instr := 'LD ('+'imm16'+'),A'; poke(imm16,A) end
 			  end;
@@ -453,12 +462,12 @@ begin
 			5: begin instr := 'CPL'; A := A xor $FF; F.B[F5]:=boolean(A and $20);F.B[FH]:=true;
 				F.B[F3]:=boolean(A and $08); F.B[FN]:=true //--*1*-1-
 			    end; 
-			6: begin instr := 'SCF'; F.b[FH] := false; F.b[FC] := true;F.b[FN] := false;
+			6: begin instr := 'SCF'; F.b[FH] := false; F.b[FC] := true;if not mode8080 then F.b[FN] := false;
 				F.B[F5]:=boolean(A and $20);F.B[F3]:=boolean(A and $08) 
 			    end; //--*0*-01	F5, F3 from A register
-			7: begin instr := 'CCF'; {F.b[FH] := F.b[FC];} F.b[FC] := not F.b[FC]; if not mode8080 then F.b[FN] := false;
+			7: begin instr := 'CCF'; {F.b[FH] := F.b[FC]}; F.b[FC] := not F.b[FC]; if not mode8080 then F.b[FN] := false;
 				F.B[F5]:=boolean(A and $20);F.B[F3]:=boolean(A and $08) 
-			    end //CCF --***-0*  C=1-C, H as old C F5, F3 from A register
+			    end //CCF --***-0*  C=1-C, H as old C (??) F5, F3 from A register
 		   end
 		end;
 	  1:if (z=6) and (y=6) 	then begin instr := 'HALT'; HALT end 
@@ -481,7 +490,7 @@ begin
 			1:nyi('** CB prefix **');
 			2:begin instr := 'OUT (imm8),A'; output(imm8,A) end;
 			3:begin instr := 'IN A,(imm8)'; A := input(imm8);
-				Flags(A>127,A=0,boolean(A and $20),false,boolean(A and $08),PE(A),false,F.b[FC]);
+//				Flags(A>127,A=0,boolean(A and $20),false,boolean(A and $08),PE(A),false,F.b[FC]);
 				if A=254 then PC:=$100 //debug
 			  end; // SZ503P0-
 			4:begin instr := 'EX (SP),HL';  QQ := peek2(SP); poke2(SP,pair(H,L)); wr16_rp(2,QQ) end;
