@@ -6,8 +6,7 @@
 
 // known bugs:
 
-// DAA not implemented
-// no prefixes
+// only 8080 mode implemented
 
 
 unit zED80;
@@ -133,7 +132,7 @@ begin
 	    0: begin B := hi(val); C := lo(val) end;
 	    1: begin D := hi(val); E := lo(val) end;
 	    2: begin H := hi(val); L := lo(val) end;
-	    3: begin A := hi(val); F.reg := lo(val) end
+	    3: begin A := hi(val); F.reg := lo(val) end 
 	end
 end; 
 
@@ -143,7 +142,7 @@ begin
 	    0: rd16_rp2 := pair(B,C);
 	    1: rd16_rp2 := pair(D,E);
 	    2: rd16_rp2 := pair(H,L);
-	    3: rd16_rp2 := pair(A,F.reg)
+	    3: rd16_rp2 := pair(A,F.reg) 
 	end
 end;
 
@@ -197,7 +196,9 @@ end;
 
 procedure Flags(VS,VZ,V5,VH,V3,VPV,VN,VC: boolean);
 begin
-	F.b[FS]:=VS;F.b[FZ]:=VZ;F.b[F5]:=V5;F.b[FH]:=VH;F.b[F3]:=V3;F.b[FPV]:=VPV;if mode8080 then F.b[FN] := true else F.b[FN]:=VN;F.b[FC]:=VC
+	F.b[FS]:=VS;F.b[FZ]:=VZ; if mode8080 then F.b[F5] := false else F.b[F5]:=V5;
+	F.b[FH]:=VH; if mode8080 then F.b[F5] := false else F.b[F3]:=V3;F.b[FPV]:=VPV;
+	if mode8080 then F.b[FN] := true else F.b[FN]:=VN; F.b[FC]:=VC
 end;
 
 function PE(B: byte): boolean; //Parity Equal
@@ -208,33 +209,40 @@ begin
     PE := not boolean (Q);
 end;
 
-function V (SI: SmallInt): boolean; //2 complements oVerflow
-begin					//smallInt = signed 16bit
-    if mode8080 then V := PE(lo(word(SI)))
-		else V := (SI > 127) or (SI < -128)
-end;
 
 procedure alu8(operation: threeBits; var Q: byte ;n: byte); // temporary version... 
 var H: byte;
     HH: word;
-    
+    sq,sn: boolean;
+
+function V(res: byte; N: boolean): boolean;
+begin
+    if mode8080 then V := PE(res) 
+    else
+	case n of
+	    false: if (sq and sn and (Q<=127))or(not sq and not sn and (Q>127)) then V := true else V:= false;
+	    true:  if (sq and not sn and (Q<=127))or(not sq and sn and (Q>127)) then V := true else V:= false
+	end
+end;  
+
 begin 
+	sq := Q>127;sn := n>127;
 	case operation of
 {ADD}	0: 	begin 	HH := Q+n; H := (Q and $0F)+(n and $0F); Q := HH; 
 			Flags(Q>127,Q=0,boolean(Q and $20),H>15,boolean(Q and $08),
-			V(HH),false,HH>255) 
+			V(Q,false),false,HH>255) 
 		end; //SZ5H3VNC
 {ADC}	1:	begin 	HH := Q+n+byte(F.b[FC]);H := (Q and $0F)+(n and $0F)+byte(F.b[FC]=true); Q := HH; 
 			Flags(Q>127,Q=0,boolean(Q and $20),H>15,boolean(Q and $08),
-			V(HH),false,HH>255) 
+			V(Q,false),false,HH>255) 
 		end; //SZ5H3VNC
 {SUB}	2:	begin 	HH := Q-n;H := (Q and $0F)-(n and $0F); Q := HH; 
 			Flags(Q>127,Q=0,boolean(Q and $20),H>127,boolean(Q and $08),
-			V(HH),true,HH>255) 
+			V(Q,true),true,HH>255) 
 		end; //SZ5H3VNC
 {SBC}	3:	begin 	HH := Q-n-byte(F.b[FC]);H := (Q and $0F)-(n and $0F)-byte(F.b[FC]=true); Q := HH; 
 			Flags(Q>127,Q=0,boolean(Q and $20),H>127,boolean(Q and $08),
-			V(HH),true,HH>255) 
+			V(Q,true),true,HH>255) 
 		end; //SZ5H3VNC
 {AND}	4:	begin 	Q := Q and n;
 			Flags(Q>127,Q=0,boolean(Q and $20),true,boolean(Q and $08),
@@ -250,7 +258,7 @@ begin
 		end; //SZ503P00
 {CP}	7:	begin 	HH := Q-n; H := (Q and $0F)-(n and $0F);
 			Flags(HH>127,HH=0,boolean(n and $20),H>127,boolean(n and $08),
-			V(HH),true,HH>255) 
+			V(Q,true),true,HH>255) 
 		end; //SZ*H*VNC
 	end
 end;
@@ -259,7 +267,7 @@ procedure ADD16 (var QQ: word ; nn: word);
 var h,l: byte;
     z,pv,s : boolean;
 begin
-	z := F.b[FC]; pv := F.b[FPV]; s := F.b[FS]; //save z,pv,s
+	z := F.b[FZ]; pv := F.b[FPV]; s := F.b[FS]; //save z,pv,s
 	l := lo(QQ); alu8(0,l,lo(nn)); //add l, lo(nn)
 	h := hi(QQ); alu8(1,h,hi(nn)); //adc h, hi(nn)
 	QQ := pair(h,l);
