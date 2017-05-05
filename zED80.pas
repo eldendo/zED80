@@ -1,11 +1,10 @@
-(* zED80 - EL DENDO's Z80 emulator V0.3 DEV
+(* zED80 - EL DENDO's Z80/8080 emulator V0.4 DEV
    (c)2017 by ir. M. Dendooven
-   This program is a Z80 emulator under construction
+   This program is a Z80/8080 emulator under construction
    the decoding algorithm is based on http://www.z80.info/decoding.htm *)
 
-
 // known bugs:
-
+// RST not yet implemented
 // only 8080 mode implemented
 
 
@@ -20,14 +19,16 @@ var	debug: boolean = false;
 
 type  	readCallBack = function(address: word): byte;
 	writeCallBack = procedure(address: word; value: byte);
+	userCallBack = procedure;
 	
 
 	
-procedure runZED80(PC,SP: word; peek,input: readCallBack; poke,output: writeCallBack);
+procedure runZED80(PC,SP: word; peek,input: readCallBack; poke,output: writeCallBack; user: userCallBack);
 
 implementation
 
-procedure runZED80(PC,SP: word; peek,input: readCallBack; poke,output: writeCallBack);
+
+procedure runZED80(PC,SP: word; peek,input: readCallBack; poke,output: writeCallBack; user: userCallBack);
 
 const	
 	r : array [0..7] of string = ('B','C','D','E','H','L','(HL)','A');
@@ -379,7 +380,7 @@ var QQ: word;
     carry: boolean;
 begin
 
-	if mode8080 and (IR in [$08,$10,$18,$20,$28,$30,$38,$cb,$d9,$dd,$ed,$fd])
+	if mode8080 and (IR in [$08,$10,$18,$20,$28,$30,$38,$cb,$d9,$dd,$fd])
 	    then begin writeln; writeln('instruction $',hexstr(IR,2),' on address $',
 			hexstr(PC-1,4),' is an Z80 instruction and is not supported in 8080 mode');
 			halt
@@ -512,7 +513,7 @@ begin
 			1:case p of
 				0:begin instr := 'CALL imm16'; push16(PC+2); PC := imm16  end;
 				1:nyi(' ** DD prefix ** ');
-				2:nyi(' ** ED prefix ** ');
+				2:if imm8= $FE then user else nyi(' ** ED prefix ** ');
 				3:nyi(' ** FD prefix ** ')
 			  end
 		  end;
@@ -529,7 +530,7 @@ end;
 	
 begin //runZED80
 	writeln('--------------------------------------------------');
-	writeln(' zED80 - EL DENDO''s Z80 emulator V0.3 DEV');
+	writeln(' zED80 - EL DENDO''s Z80/8080 emulator V0.4 DEV');
 	writeln(' (c)2017 by ir. M. Dendooven');
 	writeln(' This program is a Z80 emulator under construction');
 	writeln('--------------------------------------------------');	
